@@ -391,7 +391,7 @@ static int i3200_probe1(struct pci_dev *pdev, int dev_idx)
 		for (j = 0; j < nr_channels; j++) {
 			struct dimm_info *dimm = csrow->channels[j]->dimm;
 
-			dimm->nr_pages = nr_pages / nr_channels;
+			dimm->nr_pages = nr_pages;
 			dimm->grain = nr_pages << PAGE_SHIFT;
 			dimm->mtype = MEM_DDR2;
 			dimm->dtype = DEV_UNKNOWN;
@@ -419,8 +419,7 @@ fail:
 	return rc;
 }
 
-static int __devinit i3200_init_one(struct pci_dev *pdev,
-		const struct pci_device_id *ent)
+static int i3200_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	int rc;
 
@@ -436,7 +435,7 @@ static int __devinit i3200_init_one(struct pci_dev *pdev,
 	return rc;
 }
 
-static void __devexit i3200_remove_one(struct pci_dev *pdev)
+static void i3200_remove_one(struct pci_dev *pdev)
 {
 	struct mem_ctl_info *mci;
 	struct i3200_priv *priv;
@@ -467,7 +466,7 @@ MODULE_DEVICE_TABLE(pci, i3200_pci_tbl);
 static struct pci_driver i3200_driver = {
 	.name = EDAC_MOD_STR,
 	.probe = i3200_init_one,
-	.remove = __devexit_p(i3200_remove_one),
+	.remove = i3200_remove_one,
 	.id_table = i3200_pci_tbl,
 };
 

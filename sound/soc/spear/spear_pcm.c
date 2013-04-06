@@ -138,7 +138,7 @@ static void spear_pcm_free(struct snd_pcm *pcm)
 			continue;
 
 		buf = &substream->dma_buffer;
-		if (!buf && !buf->area)
+		if (!buf || !buf->area)
 			continue;
 
 		dma_free_writecombine(pcm->card->dev, buf->bytes,
@@ -184,12 +184,12 @@ struct snd_soc_platform_driver spear_soc_platform = {
 	.pcm_free	=	spear_pcm_free,
 };
 
-static int __devinit spear_soc_platform_probe(struct platform_device *pdev)
+static int spear_soc_platform_probe(struct platform_device *pdev)
 {
 	return snd_soc_register_platform(&pdev->dev, &spear_soc_platform);
 }
 
-static int __devexit spear_soc_platform_remove(struct platform_device *pdev)
+static int spear_soc_platform_remove(struct platform_device *pdev)
 {
 	snd_soc_unregister_platform(&pdev->dev);
 
@@ -203,7 +203,7 @@ static struct platform_driver spear_pcm_driver = {
 	},
 
 	.probe = spear_soc_platform_probe,
-	.remove = __devexit_p(spear_soc_platform_remove),
+	.remove = spear_soc_platform_remove,
 };
 
 module_platform_driver(spear_pcm_driver);

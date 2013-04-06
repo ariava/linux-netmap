@@ -89,7 +89,6 @@ static struct snd_soc_jack_gpio tegra_alc5632_hp_jack_gpio = {
 	.name = "Headset detection",
 	.report = SND_JACK_HEADSET,
 	.debounce_time = 150,
-	.invert = 1,
 };
 
 static const struct snd_soc_dapm_widget tegra_alc5632_dapm_widgets[] = {
@@ -151,7 +150,7 @@ static struct snd_soc_card snd_soc_tegra_alc5632 = {
 	.fully_routed = true,
 };
 
-static __devinit int tegra_alc5632_probe(struct platform_device *pdev)
+static int tegra_alc5632_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct snd_soc_card *card = &snd_soc_tegra_alc5632;
@@ -177,7 +176,7 @@ static __devinit int tegra_alc5632_probe(struct platform_device *pdev)
 	}
 
 	alc5632->gpio_hp_det = of_get_named_gpio(np, "nvidia,hp-det-gpios", 0);
-	if (alc5632->gpio_hp_det == -ENODEV)
+	if (alc5632->gpio_hp_det == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 
 	ret = snd_soc_of_parse_card_name(card, "nvidia,model");
@@ -228,7 +227,7 @@ err:
 	return ret;
 }
 
-static int __devexit tegra_alc5632_remove(struct platform_device *pdev)
+static int tegra_alc5632_remove(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct tegra_alc5632 *machine = snd_soc_card_get_drvdata(card);
@@ -243,7 +242,7 @@ static int __devexit tegra_alc5632_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id tegra_alc5632_of_match[] __devinitconst = {
+static const struct of_device_id tegra_alc5632_of_match[] = {
 	{ .compatible = "nvidia,tegra-audio-alc5632", },
 	{},
 };
@@ -256,7 +255,7 @@ static struct platform_driver tegra_alc5632_driver = {
 		.of_match_table = tegra_alc5632_of_match,
 	},
 	.probe = tegra_alc5632_probe,
-	.remove = __devexit_p(tegra_alc5632_remove),
+	.remove = tegra_alc5632_remove,
 };
 module_platform_driver(tegra_alc5632_driver);
 

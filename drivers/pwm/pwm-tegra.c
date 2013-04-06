@@ -187,10 +187,8 @@ static int tegra_pwm_probe(struct platform_device *pdev)
 	}
 
 	pwm->mmio_base = devm_request_and_ioremap(&pdev->dev, r);
-	if (!pwm->mmio_base) {
-		dev_err(&pdev->dev, "failed to ioremap() region\n");
+	if (!pwm->mmio_base)
 		return -EADDRNOTAVAIL;
-	}
 
 	platform_set_drvdata(pdev, pwm);
 
@@ -212,7 +210,7 @@ static int tegra_pwm_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit tegra_pwm_remove(struct platform_device *pdev)
+static int tegra_pwm_remove(struct platform_device *pdev)
 {
 	struct tegra_pwm_chip *pc = platform_get_drvdata(pdev);
 	int i;
@@ -251,7 +249,7 @@ static struct platform_driver tegra_pwm_driver = {
 		.of_match_table = of_match_ptr(tegra_pwm_of_match),
 	},
 	.probe = tegra_pwm_probe,
-	.remove = __devexit_p(tegra_pwm_remove),
+	.remove = tegra_pwm_remove,
 };
 
 module_platform_driver(tegra_pwm_driver);

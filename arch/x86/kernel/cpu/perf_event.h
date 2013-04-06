@@ -354,6 +354,8 @@ struct x86_pmu {
 	int		attr_rdpmc;
 	struct attribute **format_attrs;
 
+	ssize_t		(*events_sysfs_show)(char *page, u64 config);
+
 	/*
 	 * CPU Hotplug hooks
 	 */
@@ -516,6 +518,29 @@ static inline bool kernel_ip(unsigned long ip)
 #endif
 }
 
+/*
+ * Not all PMUs provide the right context information to place the reported IP
+ * into full context. Specifically segment registers are typically not
+ * supplied.
+ *
+ * Assuming the address is a linear address (it is for IBS), we fake the CS and
+ * vm86 mode using the known zero-based code segment and 'fix up' the registers
+ * to reflect this.
+ *
+ * Intel PEBS/LBR appear to typically provide the effective address, nothing
+ * much we can do about that but pray and treat it like a linear address.
+ */
+static inline void set_linear_ip(struct pt_regs *regs, unsigned long ip)
+{
+	regs->cs = kernel_ip(ip) ? __KERNEL_CS : __USER_CS;
+	if (regs->flags & X86_VM_MASK)
+		regs->flags ^= (PERF_EFLAGS_VM | X86_VM_MASK);
+	regs->ip = ip;
+}
+
+ssize_t x86_event_sysfs_show(char *page, u64 config, u64 event);
+ssize_t intel_event_sysfs_show(char *page, u64 config);
+
 #ifdef CONFIG_CPU_SUP_AMD
 
 int amd_pmu_init(void);
@@ -566,6 +591,8 @@ extern struct event_constraint intel_westmere_pebs_event_constraints[];
 
 extern struct event_constraint intel_snb_pebs_event_constraints[];
 
+extern struct event_constraint intel_ivb_pebs_event_constraints[];
+
 struct event_constraint *intel_pebs_constraints(struct perf_event *event);
 
 void intel_pmu_pebs_enable(struct perf_event *event);
@@ -603,6 +630,8 @@ int intel_pmu_setup_lbr_filter(struct perf_event *event);
 int p4_pmu_init(void);
 
 int p6_pmu_init(void);
+
+int knc_pmu_init(void);
 
 #else /* CONFIG_CPU_SUP_INTEL */
 

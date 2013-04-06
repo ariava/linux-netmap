@@ -199,6 +199,36 @@ void *edac_align_ptr(void **p, unsigned size, int n_elems)
 	return (void *)(((unsigned long)ptr) + align - r);
 }
 
+static void _edac_mc_free(struct mem_ctl_info *mci)
+{
+	int i, chn, row;
+	struct csrow_info *csr;
+	const unsigned int tot_dimms = mci->tot_dimms;
+	const unsigned int tot_channels = mci->num_cschannel;
+	const unsigned int tot_csrows = mci->nr_csrows;
+
+	if (mci->dimms) {
+		for (i = 0; i < tot_dimms; i++)
+			kfree(mci->dimms[i]);
+		kfree(mci->dimms);
+	}
+	if (mci->csrows) {
+		for (row = 0; row < tot_csrows; row++) {
+			csr = mci->csrows[row];
+			if (csr) {
+				if (csr->channels) {
+					for (chn = 0; chn < tot_channels; chn++)
+						kfree(csr->channels[chn]);
+					kfree(csr->channels);
+				}
+				kfree(csr);
+			}
+		}
+		kfree(mci->csrows);
+	}
+	kfree(mci);
+}
+
 /**
  * edac_mc_alloc: Allocate and partially fill a struct mem_ctl_info structure
  * @mc_num:		Memory controller number
@@ -310,7 +340,7 @@ struct mem_ctl_info *edac_mc_alloc(unsigned mc_num,
 	/*
 	 * Alocate and fill the csrow/channels structs
 	 */
-	mci->csrows = kcalloc(sizeof(*mci->csrows), tot_csrows, GFP_KERNEL);
+	mci->csrows = kcalloc(tot_csrows, sizeof(*mci->csrows), GFP_KERNEL);
 	if (!mci->csrows)
 		goto error;
 	for (row = 0; row < tot_csrows; row++) {
@@ -321,7 +351,7 @@ struct mem_ctl_info *edac_mc_alloc(unsigned mc_num,
 		csr->csrow_idx = row;
 		csr->mci = mci;
 		csr->nr_channels = tot_channels;
-		csr->channels = kcalloc(sizeof(*csr->channels), tot_channels,
+		csr->channels = kcalloc(tot_channels, sizeof(*csr->channels),
 					GFP_KERNEL);
 		if (!csr->channels)
 			goto error;
@@ -339,7 +369,7 @@ struct mem_ctl_info *edac_mc_alloc(unsigned mc_num,
 	/*
 	 * Allocate and fill the dimm structs
 	 */
-	mci->dimms  = kcalloc(sizeof(*mci->dimms), tot_dimms, GFP_KERNEL);
+	mci->dimms  = kcalloc(tot_dimms, sizeof(*mci->dimms), GFP_KERNEL);
 	if (!mci->dimms)
 		goto error;
 
@@ -386,10 +416,18 @@ struct mem_ctl_info *edac_mc_alloc(unsigned mc_num,
 		dimm->cschannel = chn;
 
 		/* Increment csrow location */
-		row++;
-		if (row == tot_csrows) {
-			row = 0;
+		if (layers[0].is_virt_csrow) {
 			chn++;
+			if (chn == tot_channels) {
+				chn = 0;
+				row++;
+			}
+		} else {
+			row++;
+			if (row == tot_csrows) {
+				row = 0;
+				chn++;
+			}
 		}
 
 		/* Increment dimm location */
@@ -413,24 +451,7 @@ struct mem_ctl_info *edac_mc_alloc(unsigned mc_num,
 	return mci;
 
 error:
-	if (mci->dimms) {
-		for (i = 0; i < tot_dimms; i++)
-			kfree(mci->dimms[i]);
-		kfree(mci->dimms);
-	}
-	if (mci->csrows) {
-		for (chn = 0; chn < tot_channels; chn++) {
-			csr = mci->csrows[chn];
-			if (csr) {
-				for (chn = 0; chn < tot_channels; chn++)
-					kfree(csr->channels[chn]);
-				kfree(csr);
-			}
-			kfree(mci->csrows[i]);
-		}
-		kfree(mci->csrows);
-	}
-	kfree(mci);
+	_edac_mc_free(mci);
 
 	return NULL;
 }
@@ -444,6 +465,14 @@ EXPORT_SYMBOL_GPL(edac_mc_alloc);
 void edac_mc_free(struct mem_ctl_info *mci)
 {
 	edac_dbg(1, "\n");
+
+	/* If we're not yet registered with sysfs free only what was allocated
+	 * in edac_mc_alloc().
+	 */
+	if (!device_is_registered(&mci->dev)) {
+		_edac_mc_free(mci);
+		return;
+	}
 
 	/* the mci instance is freed here, when the sysfs object is dropped */
 	edac_unregister_sysfs(mci);
@@ -538,7 +567,7 @@ static void edac_mc_workq_setup(struct mem_ctl_info *mci, unsigned msec)
 		return;
 
 	INIT_DELAYED_WORK(&mci->work, edac_mc_workq_function);
-	queue_delayed_work(edac_workqueue, &mci->work, msecs_to_jiffies(msec));
+	mod_delayed_work(edac_workqueue, &mci->work, msecs_to_jiffies(msec));
 }
 
 /*
@@ -576,21 +605,6 @@ void edac_mc_reset_delay_period(int value)
 	struct mem_ctl_info *mci;
 	struct list_head *item;
 
-	mutex_lock(&mem_ctls_mutex);
-
-	/* scan the list and turn off all workq timers, doing so under lock
-	 */
-	list_for_each(item, &mc_devices) {
-		mci = list_entry(item, struct mem_ctl_info, link);
-
-		if (mci->op_state == OP_RUNNING_POLL)
-			cancel_delayed_work(&mci->work);
-	}
-
-	mutex_unlock(&mem_ctls_mutex);
-
-
-	/* re-walk the list, and reset the poll delay */
 	mutex_lock(&mem_ctls_mutex);
 
 	list_for_each(item, &mc_devices) {
@@ -960,20 +974,22 @@ static void edac_ce_error(struct mem_ctl_info *mci,
 			  long grain)
 {
 	unsigned long remapped_page;
+	char *msg_aux = "";
+
+	if (*msg)
+		msg_aux = " ";
 
 	if (edac_mc_get_log_ce()) {
 		if (other_detail && *other_detail)
 			edac_mc_printk(mci, KERN_WARNING,
-				       "%d CE %s on %s (%s %s - %s)\n",
-				       error_count,
-				       msg, label, location,
-				       detail, other_detail);
+				       "%d CE %s%son %s (%s %s - %s)\n",
+				       error_count, msg, msg_aux, label,
+				       location, detail, other_detail);
 		else
 			edac_mc_printk(mci, KERN_WARNING,
-				       "%d CE %s on %s (%s %s)\n",
-				       error_count,
-				       msg, label, location,
-				       detail);
+				       "%d CE %s%son %s (%s %s)\n",
+				       error_count, msg, msg_aux, label,
+				       location, detail);
 	}
 	edac_inc_ce_error(mci, enable_per_layer_report, pos, error_count);
 
@@ -1008,27 +1024,31 @@ static void edac_ue_error(struct mem_ctl_info *mci,
 			  const char *other_detail,
 			  const bool enable_per_layer_report)
 {
+	char *msg_aux = "";
+
+	if (*msg)
+		msg_aux = " ";
+
 	if (edac_mc_get_log_ue()) {
 		if (other_detail && *other_detail)
 			edac_mc_printk(mci, KERN_WARNING,
-				       "%d UE %s on %s (%s %s - %s)\n",
-				       error_count,
-			               msg, label, location, detail,
-				       other_detail);
+				       "%d UE %s%son %s (%s %s - %s)\n",
+				       error_count, msg, msg_aux, label,
+				       location, detail, other_detail);
 		else
 			edac_mc_printk(mci, KERN_WARNING,
-				       "%d UE %s on %s (%s %s)\n",
-				       error_count,
-			               msg, label, location, detail);
+				       "%d UE %s%son %s (%s %s)\n",
+				       error_count, msg, msg_aux, label,
+				       location, detail);
 	}
 
 	if (edac_mc_get_panic_on_ue()) {
 		if (other_detail && *other_detail)
-			panic("UE %s on %s (%s%s - %s)\n",
-			      msg, label, location, detail, other_detail);
+			panic("UE %s%son %s (%s%s - %s)\n",
+			      msg, msg_aux, label, location, detail, other_detail);
 		else
-			panic("UE %s on %s (%s%s)\n",
-			      msg, label, location, detail);
+			panic("UE %s%son %s (%s%s)\n",
+			      msg, msg_aux, label, location, detail);
 	}
 
 	edac_inc_ue_error(mci, enable_per_layer_report, pos, error_count);
@@ -1087,10 +1107,6 @@ void edac_mc_handle_error(const enum hw_event_mc_err_type type,
 	 */
 	for (i = 0; i < mci->n_layers; i++) {
 		if (pos[i] >= (int)mci->layers[i].size) {
-			if (type == HW_EVENT_ERR_CORRECTED)
-				p = "CE";
-			else
-				p = "UE";
 
 			edac_mc_printk(mci, KERN_ERR,
 				       "INTERNAL ERROR: %s value is out of range (%d >= %d)\n",
@@ -1122,6 +1138,7 @@ void edac_mc_handle_error(const enum hw_event_mc_err_type type,
 	grain = 0;
 	p = label;
 	*p = '\0';
+
 	for (i = 0; i < mci->tot_dimms; i++) {
 		struct dimm_info *dimm = mci->dimms[i];
 
@@ -1189,6 +1206,7 @@ void edac_mc_handle_error(const enum hw_event_mc_err_type type,
 
 	/* Fill the RAM location data */
 	p = location;
+
 	for (i = 0; i < mci->n_layers; i++) {
 		if (pos[i] < 0)
 			continue;
@@ -1201,7 +1219,6 @@ void edac_mc_handle_error(const enum hw_event_mc_err_type type,
 		*(p - 1) = '\0';
 
 	/* Report the error via the trace interface */
-
 	grain_bits = fls_long(grain) + 1;
 	trace_mc_event(type, msg, label, error_count,
 		       mci->mc_idx, top_layer, mid_layer, low_layer,

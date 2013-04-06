@@ -166,18 +166,17 @@ static long booke_wdt_ioctl(struct file *file,
 
 	switch (cmd) {
 	case WDIOC_GETSUPPORT:
-		if (copy_to_user((void *)arg, &ident, sizeof(ident)))
-			return -EFAULT;
+		return copy_to_user(p, &ident, sizeof(ident)) ? -EFAULT : 0;
 	case WDIOC_GETSTATUS:
 		return put_user(0, p);
 	case WDIOC_GETBOOTSTATUS:
 		/* XXX: something is clearing TSR */
 		tmp = mfspr(SPRN_TSR) & TSR_WRS(3);
 		/* returns CARDRESET if last reset was caused by the WDT */
-		return (tmp ? WDIOF_CARDRESET : 0);
+		return put_user((tmp ? WDIOF_CARDRESET : 0), p);
 	case WDIOC_SETOPTIONS:
 		if (get_user(tmp, p))
-			return -EINVAL;
+			return -EFAULT;
 		if (tmp == WDIOS_ENABLECARD) {
 			booke_wdt_ping();
 			break;
@@ -213,7 +212,7 @@ static long booke_wdt_ioctl(struct file *file,
 	return 0;
 }
 
-/* wdt_is_active stores wether or not the /dev/watchdog device is opened */
+/* wdt_is_active stores whether or not the /dev/watchdog device is opened */
 static unsigned long wdt_is_active;
 
 static int booke_wdt_open(struct inode *inode, struct file *file)

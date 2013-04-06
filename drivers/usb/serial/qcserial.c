@@ -22,8 +22,6 @@
 #define DRIVER_AUTHOR "Qualcomm Inc"
 #define DRIVER_DESC "Qualcomm USB Serial driver"
 
-static bool debug;
-
 #define DEVICE_G1K(v, p) \
 	USB_DEVICE(v, p), .driver_info = 1
 
@@ -55,6 +53,7 @@ static const struct usb_device_id id_table[] = {
 	{DEVICE_G1K(0x05c6, 0x9221)},	/* Generic Gobi QDL device */
 	{DEVICE_G1K(0x05c6, 0x9231)},	/* Generic Gobi QDL device */
 	{DEVICE_G1K(0x1f45, 0x0001)},	/* Unknown Gobi QDL device */
+	{DEVICE_G1K(0x1bc7, 0x900e)},	/* Telit Gobi QDL device */
 
 	/* Gobi 2000 devices */
 	{USB_DEVICE(0x1410, 0xa010)},	/* Novatel Gobi 2000 QDL device */
@@ -140,7 +139,6 @@ MODULE_DEVICE_TABLE(usb, id_table);
 
 static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 {
-	struct usb_wwan_intf_private *data;
 	struct usb_host_interface *intf = serial->interface->cur_altsetting;
 	struct device *dev = &serial->dev->dev;
 	int retval = -ENODEV;
@@ -155,13 +153,6 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 	dev_dbg(dev, "Num Interfaces = %d\n", nintf);
 	ifnum = intf->desc.bInterfaceNumber;
 	dev_dbg(dev, "This Interface = %d\n", ifnum);
-
-	data = kzalloc(sizeof(struct usb_wwan_intf_private),
-					 GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	spin_lock_init(&data->susp_lock);
 
 	if (nintf == 1) {
 		/* QDL mode */
@@ -199,43 +190,49 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 
 	/* default to enabling interface */
 	altsetting = 0;
-	switch (ifnum) {
-		/* Composite mode; don't bind to the QMI/net interface as that
-		 * gets handled by other drivers.
-		 */
 
+	/* Composite mode; don't bind to the QMI/net interface as that
+	 * gets handled by other drivers.
+	 */
+
+	if (is_gobi1k) {
 		/* Gobi 1K USB layout:
 		 * 0: serial port (doesn't respond)
 		 * 1: serial port (doesn't respond)
 		 * 2: AT-capable modem port
 		 * 3: QMI/net
-		 *
-		 * Gobi 2K+ USB layout:
+		 */
+		if (ifnum == 2)
+			dev_dbg(dev, "Modem port found\n");
+		else
+			altsetting = -1;
+	} else {
+		/* Gobi 2K+ USB layout:
 		 * 0: QMI/net
 		 * 1: DM/DIAG (use libqcdm from ModemManager for communication)
 		 * 2: AT-capable modem port
 		 * 3: NMEA
 		 */
-
-	case 1:
-		if (is_gobi1k)
+		switch (ifnum) {
+		case 0:
+			/* Don't claim the QMI/net interface */
 			altsetting = -1;
-		else
+			break;
+		case 1:
 			dev_dbg(dev, "Gobi 2K+ DM/DIAG interface found\n");
-		break;
-	case 2:
-		dev_dbg(dev, "Modem port found\n");
-		break;
-	case 3:
-		if (is_gobi1k)
-			altsetting = -1;
-		else
+			break;
+		case 2:
+			dev_dbg(dev, "Modem port found\n");
+			break;
+		case 3:
 			/*
 			 * NMEA (serial line 9600 8N1)
 			 * # echo "\$GPS_START" > /dev/ttyUSBx
 			 * # echo "\$GPS_STOP"  > /dev/ttyUSBx
 			 */
 			dev_dbg(dev, "Gobi 2K+ NMEA GPS interface found\n");
+			break;
+		}
 	}
 
 done:
@@ -249,21 +246,28 @@ done:
 		}
 	}
 
-	/* Set serial->private if not returning error */
-	if (retval == 0)
-		usb_set_serial_data(serial, data);
-	else
-		kfree(data);
-
 	return retval;
+}
+
+static int qc_attach(struct usb_serial *serial)
+{
+	struct usb_wwan_intf_private *data;
+
+	data = kzalloc(sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	spin_lock_init(&data->susp_lock);
+
+	usb_set_serial_data(serial, data);
+
+	return 0;
 }
 
 static void qc_release(struct usb_serial *serial)
 {
 	struct usb_wwan_intf_private *priv = usb_get_serial_data(serial);
 
-	/* Call usb_wwan release & free the private data allocated in qcprobe */
-	usb_wwan_release(serial);
 	usb_set_serial_data(serial, NULL);
 	kfree(priv);
 }
@@ -282,9 +286,10 @@ static struct usb_serial_driver qcdevice = {
 	.write		     = usb_wwan_write,
 	.write_room	     = usb_wwan_write_room,
 	.chars_in_buffer     = usb_wwan_chars_in_buffer,
-	.attach		     = usb_wwan_startup,
-	.disconnect	     = usb_wwan_disconnect,
+	.attach              = qc_attach,
 	.release	     = qc_release,
+	.port_probe          = usb_wwan_port_probe,
+	.port_remove	     = usb_wwan_port_remove,
 #ifdef CONFIG_PM
 	.suspend	     = usb_wwan_suspend,
 	.resume		     = usb_wwan_resume,
@@ -300,6 +305,3 @@ module_usb_serial_driver(serial_drivers, id_table);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL v2");
-
-module_param(debug, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(debug, "Debug enabled or not");

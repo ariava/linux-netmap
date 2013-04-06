@@ -513,7 +513,8 @@ static int get_dimm_config(struct mem_ctl_info *mci)
 {
 	struct sbridge_pvt *pvt = mci->pvt_info;
 	struct dimm_info *dimm;
-	int i, j, banks, ranks, rows, cols, size, npages;
+	unsigned i, j, banks, ranks, rows, cols, npages;
+	u64 size;
 	u32 reg;
 	enum edac_type mode;
 	enum mem_type mtype;
@@ -585,10 +586,10 @@ static int get_dimm_config(struct mem_ctl_info *mci)
 				cols = numcol(mtr);
 
 				/* DDR3 has 8 I/O banks */
-				size = (rows * cols * banks * ranks) >> (20 - 3);
+				size = ((u64)rows * cols * banks * ranks) >> (20 - 3);
 				npages = MiB_TO_PAGES(size);
 
-				edac_dbg(0, "mc#%d: channel %d, dimm %d, %d Mb (%d pages) bank: %d, rank: %d, row: %#x, col: %#x\n",
+				edac_dbg(0, "mc#%d: channel %d, dimm %d, %Ld Mb (%d pages) bank: %d, rank: %d, row: %#x, col: %#x\n",
 					 pvt->sbridge_dev->mc, i, j,
 					 size, npages,
 					 banks, ranks, rows, cols);
@@ -1691,8 +1692,7 @@ fail0:
  *		< 0 for error code
  */
 
-static int __devinit sbridge_probe(struct pci_dev *pdev,
-				  const struct pci_device_id *id)
+static int sbridge_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int rc;
 	u8 mc, num_mc = 0;
@@ -1743,7 +1743,7 @@ fail0:
  *	sbridge_remove	destructor for one instance of device
  *
  */
-static void __devexit sbridge_remove(struct pci_dev *pdev)
+static void sbridge_remove(struct pci_dev *pdev)
 {
 	struct sbridge_dev *sbridge_dev;
 
@@ -1784,7 +1784,7 @@ MODULE_DEVICE_TABLE(pci, sbridge_pci_tbl);
 static struct pci_driver sbridge_driver = {
 	.name     = "sbridge_edac",
 	.probe    = sbridge_probe,
-	.remove   = __devexit_p(sbridge_remove),
+	.remove   = sbridge_remove,
 	.id_table = sbridge_pci_tbl,
 };
 

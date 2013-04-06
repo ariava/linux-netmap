@@ -776,7 +776,6 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 	}
 
 	if (req->cmd_type == REQ_TYPE_BLOCK_PC) { /* SG_IO ioctl from block level */
-		req->errors = result;
 		if (result) {
 			if (sense_valid && req->sense) {
 				/*
@@ -792,6 +791,10 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 			if (!sense_deferred)
 				error = __scsi_error_from_host_byte(cmd, result);
 		}
+		/*
+		 * __scsi_error_from_host_byte may have reset the host_byte
+		 */
+		req->errors = cmd->result;
 
 		req->resid_len = scsi_get_resid(cmd);
 
@@ -897,11 +900,23 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 				action = ACTION_FAIL;
 				error = -EILSEQ;
 			/* INVALID COMMAND OPCODE or INVALID FIELD IN CDB */
-			} else if ((sshdr.asc == 0x20 || sshdr.asc == 0x24) &&
-				   (cmd->cmnd[0] == UNMAP ||
-				    cmd->cmnd[0] == WRITE_SAME_16 ||
-				    cmd->cmnd[0] == WRITE_SAME)) {
-				description = "Discard failure";
+			} else if (sshdr.asc == 0x20 || sshdr.asc == 0x24) {
+				switch (cmd->cmnd[0]) {
+				case UNMAP:
+					description = "Discard failure";
+					break;
+				case WRITE_SAME:
+				case WRITE_SAME_16:
+					if (cmd->cmnd[1] & 0x8)
+						description = "Discard failure";
+					else
+						description =
+							"Write same failure";
+					break;
+				default:
+					description = "Invalid command failure";
+					break;
+				}
 				action = ACTION_FAIL;
 				error = -EREMOTEIO;
 			} else
@@ -1403,7 +1418,7 @@ static int scsi_lld_busy(struct request_queue *q)
 	struct scsi_device *sdev = q->queuedata;
 	struct Scsi_Host *shost;
 
-	if (blk_queue_dead(q))
+	if (blk_queue_dying(q))
 		return 0;
 
 	shost = sdev->host;
@@ -2470,7 +2485,8 @@ scsi_internal_device_unblock(struct scsi_device *sdev,
 	 * Try to transition the scsi device to SDEV_RUNNING or one of the
 	 * offlined states and goose the device queue if successful.
 	 */
-	if (sdev->sdev_state == SDEV_BLOCK)
+	if ((sdev->sdev_state == SDEV_BLOCK) ||
+	    (sdev->sdev_state == SDEV_TRANSPORT_OFFLINE))
 		sdev->sdev_state = new_state;
 	else if (sdev->sdev_state == SDEV_CREATED_BLOCK) {
 		if (new_state == SDEV_TRANSPORT_OFFLINE ||

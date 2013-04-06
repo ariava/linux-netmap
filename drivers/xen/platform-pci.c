@@ -101,21 +101,8 @@ static int platform_pci_resume(struct pci_dev *pdev)
 	return 0;
 }
 
-static void __devinit prepare_shared_info(void)
-{
-#ifdef CONFIG_KEXEC
-	unsigned long addr;
-	struct shared_info *hvm_shared_info;
-
-	addr = alloc_xen_mmio(PAGE_SIZE);
-	hvm_shared_info = ioremap(addr, PAGE_SIZE);
-	memset(hvm_shared_info, 0, PAGE_SIZE);
-	xen_hvm_prepare_kexec(hvm_shared_info, addr >> PAGE_SHIFT);
-#endif
-}
-
-static int __devinit platform_pci_init(struct pci_dev *pdev,
-				       const struct pci_device_id *ent)
+static int platform_pci_init(struct pci_dev *pdev,
+			     const struct pci_device_id *ent)
 {
 	int i, ret;
 	long ioaddr;
@@ -151,8 +138,6 @@ static int __devinit platform_pci_init(struct pci_dev *pdev,
 	platform_mmio = mmio_addr;
 	platform_mmiolen = mmio_len;
 
-	prepare_shared_info();
-
 	if (!xen_have_vector_callback) {
 		ret = xen_allocate_irq(pdev);
 		if (ret) {
@@ -185,7 +170,7 @@ pci_out:
 	return ret;
 }
 
-static struct pci_device_id platform_pci_tbl[] __devinitdata = {
+static struct pci_device_id platform_pci_tbl[] = {
 	{PCI_VENDOR_ID_XEN, PCI_DEVICE_ID_XEN_PLATFORM,
 		PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
 	{0,}

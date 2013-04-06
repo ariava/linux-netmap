@@ -346,28 +346,15 @@ static phy_interface_t lpc_phy_interface_mode(struct device *dev)
 						   "phy-mode", NULL);
 		if (mode && !strcmp(mode, "mii"))
 			return PHY_INTERFACE_MODE_MII;
-		return PHY_INTERFACE_MODE_RMII;
 	}
-
-	/* non-DT */
-#ifdef CONFIG_ARCH_LPC32XX_MII_SUPPORT
-	return PHY_INTERFACE_MODE_MII;
-#else
 	return PHY_INTERFACE_MODE_RMII;
-#endif
 }
 
 static bool use_iram_for_net(struct device *dev)
 {
 	if (dev && dev->of_node)
 		return of_property_read_bool(dev->of_node, "use-iram");
-
-	/* non-DT */
-#ifdef CONFIG_ARCH_LPC32XX_IRAM_FOR_NET
-	return true;
-#else
 	return false;
-#endif
 }
 
 /* Receive Status information word */
@@ -1232,9 +1219,6 @@ static int lpc_eth_open(struct net_device *ndev)
 	if (netif_msg_ifup(pldat))
 		dev_dbg(&pldat->pdev->dev, "enabling %s\n", ndev->name);
 
-	if (!is_valid_ether_addr(ndev->dev_addr))
-		return -EADDRNOTAVAIL;
-
 	__lpc_eth_clock_enable(pldat, true);
 
 	/* Reset and initialize */
@@ -1314,6 +1298,7 @@ static const struct net_device_ops lpc_netdev_ops = {
 	.ndo_set_rx_mode	= lpc_eth_set_multicast_list,
 	.ndo_do_ioctl		= lpc_eth_ioctl,
 	.ndo_set_mac_address	= lpc_set_mac_address,
+	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= eth_change_mtu,
 };
 
@@ -1537,6 +1522,7 @@ static int lpc_eth_drv_remove(struct platform_device *pdev)
 				  pldat->dma_buff_base_p);
 	free_irq(ndev->irq, ndev);
 	iounmap(pldat->net_base);
+	mdiobus_unregister(pldat->mii_bus);
 	mdiobus_free(pldat->mii_bus);
 	clk_disable(pldat->clk);
 	clk_put(pldat->clk);
@@ -1609,7 +1595,7 @@ MODULE_DEVICE_TABLE(of, lpc_eth_match);
 
 static struct platform_driver lpc_eth_driver = {
 	.probe		= lpc_eth_drv_probe,
-	.remove		= __devexit_p(lpc_eth_drv_remove),
+	.remove		= lpc_eth_drv_remove,
 #ifdef CONFIG_PM
 	.suspend	= lpc_eth_drv_suspend,
 	.resume		= lpc_eth_drv_resume,

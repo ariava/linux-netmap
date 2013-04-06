@@ -26,6 +26,7 @@
 #include "stf.h"
 #include "channel.h"
 #include "mac80211_if.h"
+#include "debug.h"
 
 /* QDB() macro takes a dB value and converts to a quarter dB value */
 #define QDB(n) ((n) * BRCMS_TXPWR_DB_FACTOR)
@@ -77,7 +78,7 @@
 					 NL80211_RRF_NO_IBSS)
 
 static const struct ieee80211_regdomain brcms_regdom_x2 = {
-	.n_reg_rules = 7,
+	.n_reg_rules = 6,
 	.alpha2 = "X2",
 	.reg_rules = {
 		BRCM_2GHZ_2412_2462,
@@ -336,8 +337,6 @@ struct brcms_cm_info *brcms_c_channel_mgr_attach(struct brcms_c_info *wlc)
 	const char *ccode = sprom->alpha2;
 	int ccode_len = sizeof(sprom->alpha2);
 
-	BCMMSG(wlc->wiphy, "wl%d\n", wlc->pub->unit);
-
 	wlc_cm = kzalloc(sizeof(struct brcms_cm_info), GFP_ATOMIC);
 	if (wlc_cm == NULL)
 		return NULL;
@@ -382,9 +381,7 @@ brcms_c_channel_set_chanspec(struct brcms_cm_info *wlc_cm, u16 chanspec,
 {
 	struct brcms_c_info *wlc = wlc_cm->wlc;
 	struct ieee80211_channel *ch = wlc->pub->ieee_hw->conf.channel;
-	const struct ieee80211_reg_rule *reg_rule;
 	struct txpwr_limits txpwr;
-	int ret;
 
 	brcms_c_channel_reg_limits(wlc_cm, chanspec, &txpwr);
 
@@ -393,8 +390,7 @@ brcms_c_channel_set_chanspec(struct brcms_cm_info *wlc_cm, u16 chanspec,
 	);
 
 	/* set or restore gmode as required by regulatory */
-	ret = freq_reg_info(wlc->wiphy, ch->center_freq, 0, &reg_rule);
-	if (!ret && (reg_rule->flags & NL80211_RRF_NO_OFDM))
+	if (ch->flags & IEEE80211_CHAN_NO_OFDM)
 		brcms_c_set_gmode(wlc, GMODE_LEGACY_B, false);
 	else
 		brcms_c_set_gmode(wlc, wlc->protection->gmode_user, false);
@@ -618,8 +614,8 @@ brcms_c_valid_chanspec_ext(struct brcms_cm_info *wlc_cm, u16 chspec)
 
 	/* check the chanspec */
 	if (brcms_c_chspec_malformed(chspec)) {
-		wiphy_err(wlc->wiphy, "wl%d: malformed chanspec 0x%x\n",
-			wlc->pub->unit, chspec);
+		brcms_err(wlc->hw->d11core, "wl%d: malformed chanspec 0x%x\n",
+			  wlc->pub->unit, chspec);
 		return false;
 	}
 
@@ -741,7 +737,8 @@ static int brcms_reg_notifier(struct wiphy *wiphy,
 		mboolclr(wlc->pub->radio_disabled, WL_RADIO_COUNTRY_DISABLE);
 	} else {
 		mboolset(wlc->pub->radio_disabled, WL_RADIO_COUNTRY_DISABLE);
-		wiphy_err(wlc->wiphy, "wl%d: %s: no valid channel for \"%s\"\n",
+		brcms_err(wlc->hw->d11core,
+			  "wl%d: %s: no valid channel for \"%s\"\n",
 			  wlc->pub->unit, __func__, request->alpha2);
 	}
 
