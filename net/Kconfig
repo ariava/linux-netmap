@@ -23,6 +23,12 @@ menuconfig NET
 
 if NET
 
+config NETMAP
+	bool "Netmap support"
+	help
+	  This option lets the Netmap framework be compiled inside the
+	  kernel.
+
 config WANT_COMPAT_NETLINK_MESSAGES
 	bool
 	help

@@ -904,6 +904,10 @@ DECLARE_RTL_COND(rtl_ocpar_cond)
 	return RTL_R32(OCPAR) & OCPAR_FLAG;
 }
 
+#ifdef CONFIG_RTL8169_NETMAP
+#include <if_re_netmap_linux.h>
+#endif
+
 static u32 ocp_read(struct rtl8169_private *tp, u8 mask, u16 reg)
 {
 	void __iomem *ioaddr = tp->mmio_addr;
@@ -5557,7 +5561,12 @@ static inline void rtl8169_mark_as_last_descriptor(struct RxDesc *desc)
 
 static int rtl8169_rx_fill(struct rtl8169_private *tp)
 {
+#ifdef CONFIG_RTL8169_NETMAP
 	unsigned int i;
+	re_netmap_tx_init(tp);
+	if (re_netmap_rx_init(tp))
+		return 0; // success
+#endif
 
 	for (i = 0; i < NUM_RX_DESC; i++) {
 		void *data;
@@ -5888,6 +5897,11 @@ static void rtl_tx(struct net_device *dev, struct rtl8169_private *tp)
 {
 	unsigned int dirty_tx, tx_left;
 
+#ifdef CONFIG_RTL8169_NETMAP
+	if (netmap_tx_irq(dev, 0))
+		return;
+#endif
+
 	dirty_tx = tp->dirty_tx;
 	smp_rmb();
 	tx_left = tp->cur_tx - dirty_tx;
@@ -5983,6 +5997,11 @@ static int rtl_rx(struct net_device *dev, struct rtl8169_private *tp, u32 budget
 {
 	unsigned int cur_rx, rx_left;
 	unsigned int count;
+
+#ifdef CONFIG_RTL8169_NETMAP
+	if (netmap_rx_irq(dev, 0, &count))
+		return count;
+#endif
 
 	cur_rx = tp->cur_rx;
 	rx_left = NUM_RX_DESC + tp->dirty_rx - cur_rx;
@@ -6578,6 +6597,9 @@ static void rtl_remove_one(struct pci_dev *pdev)
 
 	rtl_release_firmware(tp);
 
+#ifdef CONFIG_RTL8169_NETMAP
+	netmap_detach(dev);
+#endif
 	if (pci_dev_run_wake(pdev))
 		pm_runtime_get_noresume(&pdev->dev);
 
@@ -6953,6 +6975,10 @@ rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	if (pci_dev_run_wake(pdev))
 		pm_runtime_put_noidle(&pdev->dev);
+
+#ifdef CONFIG_RTL8169_NETMAP
+	re_netmap_attach(tp);
+#endif
 
 	netif_carrier_off(dev);
 
