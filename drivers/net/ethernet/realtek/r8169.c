@@ -5561,8 +5561,8 @@ static inline void rtl8169_mark_as_last_descriptor(struct RxDesc *desc)
 
 static int rtl8169_rx_fill(struct rtl8169_private *tp)
 {
-#ifdef CONFIG_RTL8169_NETMAP
 	unsigned int i;
+#ifdef CONFIG_RTL8169_NETMAP
 	re_netmap_tx_init(tp);
 	if (re_netmap_rx_init(tp))
 		return 0; // success
