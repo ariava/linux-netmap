@@ -115,4 +115,12 @@ config R8169
 	  To compile this driver as a module, choose M here: the module
 	  will be called r8169.  This is recommended.
 
+config RTL8169_NETMAP
+	bool "Use device with Netmap framework"
+	depends on R8169
+	select NETMAP
+	---help---
+	  Say Y here if you want to use the Realtek 8169 ethernet adapter
+	  with Netmap support.
+
 endif # NET_VENDOR_REALTEK
