@@ -1570,7 +1570,9 @@ linux_netmap_mmap(struct file *f, struct vm_area_struct *vma)
 	 */
 
 	(void)f;	/* UNUSED */
-	// XXX security checks
+	if ((vma->vm_end - vma->vm_start) != nm_mem->nm_totalsize)
+		return -EINVAL;
+	// XXX more security checks?
 
 	for (i = 0; i < 3; i++) {  /* loop through obj_pools */
 		/*
