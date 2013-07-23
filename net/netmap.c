@@ -1547,7 +1547,7 @@ static u_int
 linux_netmap_poll(struct file * file, struct poll_table_struct *pwait)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,4,0)
-	int events = pwait ? pwait->key : POLLIN | POLLOUT;
+	int events = pwait ? poll_requested_events(pwait) : POLLIN | POLLOUT;
 #else /* in 3.4.0 field 'key' was renamed to '_key' */
 	int events = pwait ? pwait->_key : POLLIN | POLLOUT;
 #endif
