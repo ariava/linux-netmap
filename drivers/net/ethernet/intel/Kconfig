@@ -65,6 +65,13 @@ config E1000
 	  To compile this driver as a module, choose M here. The module
 	  will be called e1000.
 
+config E1000_NETMAP
+	bool "Use Intel e1000 with Netmap framework"
+	depends on NETMAP
+	---help---
+	  Use the Intel e1000 PRO/1000 Gigabit Ethernet card with Netmap
+	  framework support.
+
 config E1000E
 	tristate "Intel(R) PRO/1000 PCI-Express Gigabit Ethernet support"
 	depends on PCI && (!SPARC32 || BROKEN)
